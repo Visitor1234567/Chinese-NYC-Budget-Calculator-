@@ -1,0 +1,16 @@
+{
+  "name": "纽约随手账",
+  "short_name": "随手账",
+  "description": "适合纽约华人在 iPhone 上随时打开的轻量记账工具，支持时间、收支、分类统计和开源节流建议。",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f5efe6",
+  "theme_color": "#f5efe6",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
