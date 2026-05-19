@@ -1,4 +1,4 @@
-const CACHE_NAME = "nyc-pocket-ledger-cache-v3";
+const CACHE_NAME = "nyc-ledger-cache-v4";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {
