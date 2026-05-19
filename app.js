@@ -1,5 +1,6 @@
 const STORAGE_KEY = "nyc-pocket-ledger-v2";
-const LEGACY_STORAGE_KEYS = ["budget-flow-transactions-v1"];
+const LEGACY_STORAGE_KEYS = ["budget_app_entries_v1", "budget-flow-transactions-v1"];
+const KNOWN_SEED_MERCHANTS = new Set(["公司", "客户", "午饭", "超市", "保险"]);
 
 const DEFAULT_CATEGORIES = {
   expense: [
@@ -31,6 +32,18 @@ const DEFAULT_CATEGORIES = {
 };
 
 const CATEGORY_MIGRATION = {
+  餐饮: "外卖堂食",
+  超市: "买菜华超",
+  交通: "地铁通勤",
+  房租: "房租水电",
+  水电网: "房租水电",
+  购物: "购物美妆",
+  娱乐: "其他",
+  医疗: "医疗保险",
+  订阅: "订阅软件",
+  旅行: "旅行",
+  转账收入: "现金收入",
+  投资收益: "投资利息",
   Dining: "外卖堂食",
   Transit: "地铁通勤",
   Groceries: "买菜华超",
@@ -115,15 +128,15 @@ function boot() {
 }
 
 function hydrateState() {
-  const storedTransactions = localStorage.getItem(STORAGE_KEY) || getLegacyTransactions();
+  const currentTransactions = readTransactionsFromStorage(STORAGE_KEY);
+  const legacyTransactions = getLegacyTransactions();
 
-  if (storedTransactions) {
-    try {
-      state.transactions = JSON.parse(storedTransactions).map(migrateTransaction);
-      persistTransactions();
-    } catch {
-      state.transactions = [];
-    }
+  if (legacyTransactions.length > 0 && shouldRecoverFromLegacy(currentTransactions, legacyTransactions)) {
+    state.transactions = legacyTransactions.map(migrateTransaction);
+    persistTransactions();
+  } else if (currentTransactions.length > 0) {
+    state.transactions = currentTransactions.map(migrateTransaction);
+    persistTransactions();
   } else {
     state.transactions = getSeedTransactions();
     persistTransactions();
@@ -137,13 +150,83 @@ function hydrateState() {
 
 function getLegacyTransactions() {
   for (const key of LEGACY_STORAGE_KEYS) {
-    const value = localStorage.getItem(key);
-    if (value) {
-      return value;
+    const transactions = readTransactionsFromStorage(key);
+    if (transactions.length > 0) {
+      return transactions;
     }
   }
 
-  return null;
+  return [];
+}
+
+function readTransactionsFromStorage(key) {
+  const value = localStorage.getItem(key);
+
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function shouldRecoverFromLegacy(currentTransactions, legacyTransactions) {
+  if (legacyTransactions.length === 0) {
+    return false;
+  }
+
+  if (currentTransactions.length === 0) {
+    return true;
+  }
+
+  if (isLikelySeedData(currentTransactions)) {
+    return true;
+  }
+
+  const currentHasOnlyUnknownCategories = currentTransactions.every((item) =>
+    !transactionLooksLegacy(item) &&
+    !transactionLooksLikeNewCategory(item.category),
+  );
+  const legacyLooksReal = legacyTransactions.some(transactionLooksLegacy);
+
+  if (currentHasOnlyUnknownCategories && legacyLooksReal) {
+    return true;
+  }
+
+  return false;
+}
+
+function isLikelySeedData(transactions) {
+  if (transactions.length === 0 || transactions.length > 8) {
+    return false;
+  }
+
+  const merchantMatches = transactions.filter((item) => KNOWN_SEED_MERCHANTS.has(item.merchant)).length;
+  return merchantMatches >= Math.min(4, transactions.length);
+}
+
+function transactionLooksLegacy(transaction) {
+  return [
+    "餐饮",
+    "超市",
+    "交通",
+    "房租",
+    "水电网",
+    "购物",
+    "娱乐",
+    "医疗",
+    "订阅",
+    "转账收入",
+    "投资收益",
+  ].includes(transaction.category);
+}
+
+function transactionLooksLikeNewCategory(category) {
+  return DEFAULT_CATEGORIES.expense.includes(category) || DEFAULT_CATEGORIES.income.includes(category);
 }
 
 function bindEvents() {
@@ -586,15 +669,35 @@ function persistTransactions() {
 function migrateTransaction(transaction) {
   const rawDate = transaction.datetime || transaction.date || getToday();
   const datetime = normalizeDatetime(rawDate);
+  const rawAmount = Number(transaction.amount || 0);
+  const normalizedType = normalizeTransactionType(transaction.type, rawAmount);
 
   return {
     ...transaction,
+    type: normalizedType,
+    amount: Math.abs(rawAmount),
     datetime,
     date: datetime.slice(0, 10),
     category: CATEGORY_MIGRATION[transaction.category] || transaction.category || "其他",
     merchant: transaction.merchant || "",
     note: transaction.note || "",
   };
+}
+
+function normalizeTransactionType(type, amount) {
+  if (type === "income" || type === "expense") {
+    if (amount < 0 && type === "income") {
+      return "expense";
+    }
+
+    if (amount > 0 && type === "expense") {
+      return "expense";
+    }
+
+    return type;
+  }
+
+  return amount < 0 ? "expense" : "income";
 }
 
 function buildYearOptions() {
